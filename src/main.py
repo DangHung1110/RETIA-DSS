@@ -17,6 +17,12 @@ import copy
 import warnings
 warnings.filterwarnings(action='ignore')
 
+def get_torch_device(gpu):
+    """Return an explicit device accepted by current PyTorch releases."""
+    if gpu >= 0 and torch.cuda.is_available():
+        return torch.device("cuda:{}".format(gpu))
+    return torch.device("cpu")
+
 def temporal_regularization(params1, params2):
     regular = 0
     for (param1, param2) in zip(params1, params2):
@@ -55,12 +61,12 @@ def continual_test(model, history_list, data_list, num_rels, num_nodes, use_cuda
         if mode == "test":
             checkpoint = torch.load(
                 "{}-flr{}-norm{}-{}".format(model_name, args.ft_lr, args.norm_weight, start_idx - 1),
-                map_location=torch.device(args.gpu))
-            init_checkpoint = torch.load(model_name, map_location=torch.device(args.gpu))
+                map_location=get_torch_device(args.gpu))
+            init_checkpoint = torch.load(model_name, map_location=get_torch_device(args.gpu))
         else:
             # print(model_name)
-            checkpoint = torch.load(model_name, map_location=torch.device(args.gpu))
-            init_checkpoint = torch.load(model_name, map_location=torch.device(args.gpu))
+            checkpoint = torch.load(model_name, map_location=get_torch_device(args.gpu))
+            init_checkpoint = torch.load(model_name, map_location=get_torch_device(args.gpu))
         print("Load pretrain model: {}. Using best epoch : {}".format(model_name, checkpoint['epoch']))  # use best stat checkpoint
         print("\n" + "-" * 10 + "start continual learning" + "-" * 10 + "\n")
         model.load_state_dict(checkpoint['state_dict'])
@@ -125,7 +131,7 @@ def continual_test(model, history_list, data_list, num_rels, num_nodes, use_cuda
             valid_history_super_glist.append(valid_super_sub_g)
         valid_history_glist = [build_sub_graph(num_nodes, num_rels, g, use_cuda, args.segnn, args.gpu) for g in valid_input_list]
         valid_tensor = torch.LongTensor(valid_snap).cuda() if use_cuda else torch.LongTensor(valid_snap)
-        valid_tensor = valid_tensor.to(args.gpu)
+        valid_tensor = valid_tensor.to(get_torch_device(args.gpu))
 
         # step 2: prepare inputs for test
         test_history_super_glist = []
@@ -135,7 +141,7 @@ def continual_test(model, history_list, data_list, num_rels, num_nodes, use_cuda
             test_history_super_glist.append(test_super_sub_g)
         test_history_glist = [build_sub_graph(num_nodes, num_rels, g, use_cuda, args.segnn, args.gpu) for g in test_input_list]
         test_tensor = torch.LongTensor(test_snap).cuda() if use_cuda else torch.LongTensor(test_snap)
-        test_tensor = test_tensor.to(args.gpu)
+        test_tensor = test_tensor.to(get_torch_device(args.gpu))
 
         # result of the pre-trained model on validation set (tc-1)
         _, final_score, final_r_score = model.predict(valid_history_glist, valid_history_super_glist, num_rels, static_graph, valid_tensor, use_cuda)
@@ -196,11 +202,11 @@ def continual_test(model, history_list, data_list, num_rels, num_nodes, use_cuda
                 if not os.path.exists("{}-flr{}-norm{}-{}".format(model_name, args.ft_lr, args.norm_weight, tc)):
                     print("copy model at {}".format(tc - 1))
                     if mode == "valid" and time_idx == 0:
-                        checkpoint = torch.load(model_name, map_location=torch.device(args.gpu))
+                        checkpoint = torch.load(model_name, map_location=get_torch_device(args.gpu))
                     else:
                         checkpoint = torch.load(
                             "{}-flr{}-norm{}-{}".format(model_name, args.ft_lr, args.norm_weight, tc - 1),
-                            map_location=torch.device(args.gpu))
+                            map_location=get_torch_device(args.gpu))
                     model.load_state_dict(checkpoint['state_dict'])
                     torch.save({'state_dict': model.state_dict(), 'epoch': epoch},
                                "{}-flr{}-norm{}-{}".format(model_name, args.ft_lr, args.norm_weight, tc), _use_new_zipfile_serialization = False)
@@ -215,7 +221,7 @@ def continual_test(model, history_list, data_list, num_rels, num_nodes, use_cuda
         # ---------------start evaluate test snaoshot---------------
 
         # step 1: load current model
-        checkpoint = torch.load("{}-flr{}-norm{}-{}".format(model_name, args.ft_lr, args.norm_weight, tc), map_location=torch.device(args.gpu))
+        checkpoint = torch.load("{}-flr{}-norm{}-{}".format(model_name, args.ft_lr, args.norm_weight, tc), map_location=get_torch_device(args.gpu))
         model.load_state_dict(checkpoint['state_dict'])
         model.eval()
         # step 3: start test
@@ -277,7 +283,7 @@ def test(model, history_list, test_list, num_rels, num_nodes, use_cuda, all_ans_
     if mode == "test":
         # test mode: load parameter form file
         if use_cuda:
-            checkpoint = torch.load(model_name, map_location=torch.device(args.gpu))
+            checkpoint = torch.load(model_name, map_location=get_torch_device(args.gpu))
         else:
             checkpoint = torch.load(model_name, map_location=torch.device('cpu'))
         print("Load Model name: {}. Using best epoch : {}".format(model_name, checkpoint['epoch']))  # use best stat checkpoint
@@ -309,7 +315,7 @@ def test(model, history_list, test_list, num_rels, num_nodes, use_cuda, all_ans_
         history_glist = [build_sub_graph(num_nodes, num_rels, g, use_cuda, args.segnn, args.gpu) for g in input_list]
 
         test_triples_input = torch.LongTensor(test_snap).cuda() if use_cuda else torch.LongTensor(test_snap)
-        test_triples_input = test_triples_input.to(args.gpu) # 一个时间戳内的所有事实三元组
+        test_triples_input = test_triples_input.to(get_torch_device(args.gpu)) # 一个时间戳内的所有事实三元组
 
         # (tensor)all_triples: (batch_size, 3); (tensor)score: (batch_size, num_ents); (tensor)score_r: (batch_size, num_rel*2)
         test_triples, final_score, final_r_score = model.predict(history_glist, history_super_glist, num_rels, static_graph, test_triples_input, use_cuda)

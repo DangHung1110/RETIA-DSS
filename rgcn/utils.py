@@ -440,21 +440,21 @@ def build_sub_graph(num_nodes, num_rels, triples, use_cuda, segnn, gpu):
         g = dgl.graph((src, dst), num_nodes=num_nodes)
         g.edata['rel_id'] = torch.LongTensor(rel)
     else:
-        g = dgl.DGLGraph()
-        g.add_nodes(num_nodes) # 加入所有节点
-        g.add_edges(src, dst) # 加入所有边
+        g = dgl.graph((src, dst), num_nodes=num_nodes)
         norm = comp_deg_norm(g) # 对一个子图中的所有节点进行归一化
         node_id = torch.arange(0, num_nodes, dtype=torch.long).view(-1, 1) # [0, num_nodes)
         g.ndata.update({'id': node_id, 'norm': norm.view(-1, 1)}) # shape都为(num_nodes, 1)
         g.apply_edges(lambda edges: {'norm': edges.dst['norm'] * edges.src['norm']}) # 更新边, 边的归一化系数为头尾节点的归一化系数相乘
         g.edata['type'] = torch.LongTensor(rel) # 边的类型数据
 
+    if use_cuda:
+        g = g.to(torch.device("cuda:{}".format(gpu)))
+
     uniq_r, r_len, r_to_e = r2e(triples, num_rels) # uniq_r: 在当前时间戳内出现的所有的边(包括反向边)；r_len: 记录和边r相关的node的idx范围; e_idx: 和边r相关的node列表
     g.uniq_r = uniq_r # 在当前时间戳内出现的所有的边(包括反向边)
     g.r_to_e = r_to_e # 和边r相关的node列表，按照uniq_r中记录边的顺序排列
     g.r_len = r_len # 记录和边r相关的node在r_to_e列表中的idx范围，也与uniq_r中边的顺序保持一致
     if use_cuda:
-        g.to(gpu)
         g.r_to_e = torch.from_numpy(np.array(r_to_e))
     return g
 
@@ -565,14 +565,15 @@ def build_super_g(num_rels, rel_head, rel_tail, use_cuda, segnn, gpu):
         super_g = dgl.graph((src, dst), num_nodes=num_rels*2)
         super_g.edata['rel_id'] = torch.LongTensor(p_rel)
     else:
-        super_g = dgl.DGLGraph()
-        super_g.add_nodes(num_rels*2) # 加入所有边节点
-        super_g.add_edges(src, dst) # 加入所有位置超关系
+        super_g = dgl.graph((src, dst), num_nodes=num_rels*2)
         norm = comp_deg_norm(super_g) # 对一个子图中的所有节点进行归一化
         rel_node_id = torch.arange(0, num_rels*2, dtype=torch.long).view(-1, 1) # [0, num_rels*2)
         super_g.ndata.update({'id': rel_node_id, 'norm': norm.view(-1, 1)}) # shape都为(num_rels*2, 1)
         super_g.apply_edges(lambda edges: {'norm': edges.dst['norm'] * edges.src['norm']}) # 更新边, 边的归一化系数为头尾节点的归一化系数相乘
         super_g.edata['type'] = torch.LongTensor(p_rel) # 边的类型数据
+
+    if use_cuda:
+        super_g = super_g.to(torch.device("cuda:{}".format(gpu)))
 
     uniq_super_r, r_len, r_to_e = r2e_super(super_triples, num_rels)  # uniq_r: 在当前时间戳内出现的所有的边(包括反向边)；r_len: 记录和边r相关的node的idx范围; e_idx: 和边r相关的node列表
     super_g.uniq_super_r = uniq_super_r  # 在当前时间戳内出现的所有的边(包括反向边)
@@ -580,6 +581,5 @@ def build_super_g(num_rels, rel_head, rel_tail, use_cuda, segnn, gpu):
     super_g.r_len = r_len
 
     if use_cuda:
-        super_g.to(gpu)
         super_g.r_to_e = torch.from_numpy(np.array(r_to_e))
     return super_g # 通过关系邻接矩阵构建关系超图DGL对象: [[rel1, meta-rel, rel2], ...]
